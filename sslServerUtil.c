@@ -1,10 +1,3 @@
-/*
- * sslServerUtil.c
- *
- *  Created on: 2015年5月29日
- *      Author: 425-server2
- */
-
 #include "sslServerUtil.h"
 
 #include <arpa/inet.h>
