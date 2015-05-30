@@ -8,6 +8,10 @@
 #ifndef SSLCLIENTUTIL_H_
 #define SSLCLIENTUTIL_H_
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 #include <openssl/ossl_typ.h>
 
 //客户端向服务端发送连接请求，发送成功返回0，失败返回-1
@@ -17,4 +21,8 @@ int tcpConnect(const char* serverIP, const int port, int *serverSocketfd);
 SSL* sslConnect(const char* serverIP, const int port, int *serverSocketfd,
 		SSL_CTX *ctx);
 
+#ifdef __cplusplus
+}
+#endif
+		
 #endif /* SSLCLIENTUTIL_H_ */
