@@ -38,12 +38,14 @@ int tcpConnect(const char* serverIP, const int port, int *serverSocketfd) {
 	//点分十进制转为网络字节序二进制,并检查IP地址是否有效
 	if (inet_aton(serverIP, (struct in_addr *) &serverAddr.sin_addr.s_addr)
 			== 0) {
+		close(*serverSocketfd);
 		perror(serverIP);
 		return -1;
 	}
 	/* 连接服务器 */
 	if (connect((*serverSocketfd), (struct sockaddr *) &serverAddr,
 			sizeof(serverAddr)) != 0) {
+		close(*serverSocketfd);
 		perror("Connect ");
 		return -1;
 	}
@@ -62,10 +64,10 @@ void ShowCerts(SSL * ssl) {
 		printf("数字证书信息:\n");
 		line = X509_NAME_oneline(X509_get_subject_name(cert), 0, 0);
 		printf("证书: %s\n", line);
-		free(line);
+		OPENSSL_free(line);
 		line = X509_NAME_oneline(X509_get_issuer_name(cert), 0, 0);
 		printf("颁发者: %s\n", line);
-		free(line);
+		OPENSSL_free(line);
 		X509_free(cert);
 	} else
 		printf("无证书信息！\n");

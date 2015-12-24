@@ -13,7 +13,7 @@ int tcpListen(const char* serverIP, const int port, const int maxConnectNum,
 
 //SSL前期的一系列准备工作,成功返回SSL_CTX类型的指针，失败返回NULL
 SSL_CTX* SSL_prepare(const char *clientCertFilePath, const char *pKeyFilePath,
-		char *pass);
+		const char *clientCaFilePath, char *pass);
 
 //接收来自客户端的ssl连接请求，成功返回SSL类型指针，失败返回NULL
 SSL* sslAccept(SSL_CTX *ctx, int connectFD);

@@ -43,18 +43,29 @@ int tcpListen(const char* serverIP, const int port, const int maxConnectNum,
 		//点分十进制转为网络字节序二进制,并检查IP地址是否有效
 		if (inet_aton(serverIP, (struct in_addr *) &serverAddr.sin_addr.s_addr)
 				== 0) {
+			close(*listenFD);
 			perror(serverIP);
 			return -1;
 		}
 	}
+	//端口重用
+	int reuse = 1;
+	if (setsockopt((*listenFD), SOL_SOCKET, SO_REUSEADDR, &reuse, sizeof(int))
+			< 0) {
+		close(*listenFD);
+		perror("setsockopt");
+		return -1;
+	}
 	/* 绑定端口信息 */
 	if (bind((*listenFD), (struct sockaddr *) &serverAddr,
 			sizeof(struct sockaddr)) == -1) {
+		close(*listenFD);
 		perror("bind");
 		return -1;
 	}
 	/* 开始监听 */
 	if (listen((*listenFD), maxConnectNum) == -1) {
+		close(*listenFD);
 		perror("listen");
 		return -1;
 	}
@@ -77,15 +88,39 @@ int SSL_CTX_use_PrivateKey_file_pass(SSL_CTX *ctx, const char *filename,
 	pkey = PEM_read_bio_PrivateKey(key, NULL, NULL, pass);
 	if (pkey == NULL) {
 		printf("BIO读取密钥失败！\n");
+		BIO_free(key);
 		return -1;
 	}
 	//载入用户私钥
 	if (SSL_CTX_use_PrivateKey(ctx, pkey) <= 0) {
 		printf("载入用户私钥失败！\n");
+		BIO_free(key);
 		return -1;
 	}
 	BIO_free(key);
 	return 1;
+}
+
+int verify_callback_server(int preverify_ok, X509_STORE_CTX *ctx) {
+	char buf[256];
+	X509 *err_cert;
+	int err, depth;
+	SSL *ssl;
+	err_cert = X509_STORE_CTX_get_current_cert(ctx);
+	err = X509_STORE_CTX_get_error(ctx);
+	depth = X509_STORE_CTX_get_error_depth(ctx);
+	ssl = X509_STORE_CTX_get_ex_data(ctx, SSL_get_ex_data_X509_STORE_CTX_idx());
+
+	X509_NAME_oneline(X509_get_subject_name(err_cert), buf, 256);
+	if (!preverify_ok) {
+		printf("verify error:num=%d:%s:depth=%d:%s\n", err,
+				X509_verify_cert_error_string(err), depth, buf);
+	}
+	if (!preverify_ok && (err == X509_V_ERR_UNABLE_TO_GET_ISSUER_CERT)) {
+		X509_NAME_oneline(X509_get_issuer_name(ctx->current_cert), buf, 256);
+		printf("issuer= %s\n", buf);
+	}
+	return preverify_ok;
 }
 
 /**
@@ -93,13 +128,14 @@ int SSL_CTX_use_PrivateKey_file_pass(SSL_CTX *ctx, const char *filename,
  * 输入参数：
  * clientCertFilePath：用户的数字证书， 此证书用来发送给客户端， 证书里包含有公钥
  * pKeyFilePath：私钥文件路径
+ * caFilePath:CA证书文件路径
  * pass：使用BIO读取密钥时候的pass phase
  * 返回标志：
  *  失败返回NULL
  *  成功返回SSL_CTX类型的指针
  */
 SSL_CTX* SSL_prepare(const char *clientCertFilePath, const char *pKeyFilePath,
-		char *pass) {
+		const char *caFilePath, char *pass) {
 	SSL_CTX *ctxTmp;
 	/* SSL 库初始化 */
 	SSL_library_init();
@@ -114,9 +150,15 @@ SSL_CTX* SSL_prepare(const char *clientCertFilePath, const char *pKeyFilePath,
 		ERR_print_errors_fp(stdout);
 		return NULL;
 	}
+	//载入CA证书
+	if ((SSL_CTX_load_verify_locations(ctxTmp, caFilePath, NULL) <= 0)
+			|| (SSL_CTX_set_default_verify_paths(ctxTmp) <= 0)) {
+		ERR_print_errors_fp(stdout);
+		return NULL;
+	}
 	/* 载入用户的数字证书， 此证书用来发送给客户端，证书里包含有公钥 */
-	if (SSL_CTX_use_certificate_file(ctxTmp, clientCertFilePath, SSL_FILETYPE_PEM)
-			<= 0) {
+	if (SSL_CTX_use_certificate_file(ctxTmp, clientCertFilePath,
+			SSL_FILETYPE_PEM) <= 0) {
 		ERR_print_errors_fp(stdout);
 		return NULL;
 	}
@@ -130,6 +172,13 @@ SSL_CTX* SSL_prepare(const char *clientCertFilePath, const char *pKeyFilePath,
 		ERR_print_errors_fp(stdout);
 		return NULL;
 	}
+
+	static int s_server_verify = SSL_VERIFY_NONE;
+	s_server_verify = SSL_VERIFY_PEER | SSL_VERIFY_FAIL_IF_NO_PEER_CERT
+			| SSL_VERIFY_CLIENT_ONCE;
+	SSL_CTX_set_verify(ctxTmp, s_server_verify, verify_callback_server);
+	SSL_CTX_set_client_CA_list(ctxTmp, SSL_load_client_CA_file(caFilePath));
+
 	printf("ssl prepare success!\n");
 	return ctxTmp;
 }
